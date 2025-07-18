@@ -112,17 +112,18 @@ async def start_command(update: Update, context: CallbackContext) -> None:
     elif not is_enabled(chat_id):
         if is_admin(user_id):
             await update.message.reply_text(
-                "Bot is currently disabled in this group. Use /enable to enable it."
+                "🔴 Bot is currently disabled in this group. Use /enable to enable it."
             )
         return
     
     await update.message.reply_text(
-        "Welcome to the User Search Bot!\n\n"
-        "You can search for users by:\n"
-        "• Mobile number: /mobile <number>\n"
-        "• Aadhaar: /aadhaar <number>\n"
-        "• Email: /email <email>\n\n"
-        "Use /help to see all available commands."
+        "🔍 <b>Welcome to the User Search Bot!</b> 🔍\n\n"
+        "You can search for users by:\n\n"
+        "📱 <b>Mobile:</b> /mobile <number>\n"
+        "🪪 <b>Aadhaar:</b> /aadhaar <number>\n"
+        "📧 <b>Email:</b> /email <email>\n\n"
+        "ℹ️ Use /help to see all available commands.",
+        parse_mode="HTML"
     )
 
 async def help_command(update: Update, context: CallbackContext) -> None:
@@ -139,31 +140,31 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     # Check if in a group and if the bot is enabled for this group
     elif not is_enabled(chat_id):
         if is_user_admin:
-            await update.message.reply_text("Bot is currently disabled in this group. Use /enable to enable it.")
+            await update.message.reply_text("🔴 Bot is currently disabled in this group. Use /enable to enable it.")
         return
     
     basic_help = (
-        "Available commands:\n\n"
-        "/mobile <number> - Search by mobile number\n"
-        "/aadhaar <number> - Search by Aadhaar number\n"
-        "/email <email> - Search by email\n"
-        "/start - Show welcome message\n"
-        "/help - Show this help message"
+        "📋 <b>Available Commands</b> 📋\n\n"
+        "📱 /mobile <number> - Search by mobile number\n"
+        "🪪 /aadhaar <number> - Search by Aadhaar number\n"
+        "📧 /email <email> - Search by email\n"
+        "🏠 /start - Show welcome message\n"
+        "❓ /help - Show this help message"
     )
     
     admin_help = (
-        "\n\n<b>Admin Commands:</b>\n"
-        "/enable - Enable bot in this group\n"
-        "/disable - Disable bot in this group\n"
-        "/addadmin <user_id> - Add a new admin\n"
-        "/removeadmin <user_id> - Remove an admin\n"
-        "/status - Show bot status"
+        "\n\n👑 <b>Admin Commands</b> 👑\n\n"
+        "✅ /enable - Enable bot in this group\n"
+        "❌ /disable - Disable bot in this group\n"
+        "➕ /addadmin <user_id> - Add a new admin\n"
+        "➖ /removeadmin <user_id> - Remove an admin\n"
+        "📊 /status - Show bot status"
     )
     
     if is_user_admin:
         await update.message.reply_text(basic_help + admin_help, parse_mode="HTML")
     else:
-        await update.message.reply_text(basic_help)
+        await update.message.reply_text(basic_help, parse_mode="HTML")
 
 async def enable_command(update: Update, context: CallbackContext) -> None:
     """Enable the bot in a group."""
@@ -184,7 +185,7 @@ async def enable_command(update: Update, context: CallbackContext) -> None:
     
     # Can only be used in groups
     if chat_id > 0:
-        await update.message.reply_text("This command can only be used in groups.")
+        await update.message.reply_text("⚠️ This command can only be used in groups.")
         return
     
     # Enable the bot for this group
@@ -192,10 +193,10 @@ async def enable_command(update: Update, context: CallbackContext) -> None:
     config["enabled_groups"][chat_id_str] = True
     if save_config(config):
         logger.info(f"Bot enabled in group {chat_id} ({chat_title}) by admin {user_id}")
-        await update.message.reply_text(f"✅ Bot has been enabled in {chat_title}.")
+        await update.message.reply_text(f"✅ Bot has been enabled in <b>{chat_title}</b>.", parse_mode="HTML")
     else:
         logger.error(f"Failed to save config when enabling bot in group {chat_id}")
-        await update.message.reply_text("Failed to save configuration.")
+        await update.message.reply_text("❌ Failed to save configuration.")
 
 async def disable_command(update: Update, context: CallbackContext) -> None:
     """Disable the bot in a group."""
@@ -216,7 +217,7 @@ async def disable_command(update: Update, context: CallbackContext) -> None:
     
     # Can only be used in groups
     if chat_id > 0:
-        await update.message.reply_text("This command can only be used in groups.")
+        await update.message.reply_text("⚠️ This command can only be used in groups.")
         return
     
     # Disable the bot for this group
@@ -224,10 +225,10 @@ async def disable_command(update: Update, context: CallbackContext) -> None:
     config["enabled_groups"][chat_id_str] = False
     if save_config(config):
         logger.info(f"Bot disabled in group {chat_id} ({chat_title}) by admin {user_id}")
-        await update.message.reply_text(f"❌ Bot has been disabled in {chat_title}.")
+        await update.message.reply_text(f"❌ Bot has been disabled in <b>{chat_title}</b>.", parse_mode="HTML")
     else:
         logger.error(f"Failed to save config when disabling bot in group {chat_id}")
-        await update.message.reply_text("Failed to save configuration.")
+        await update.message.reply_text("❌ Failed to save configuration.")
 
 async def add_admin_command(update: Update, context: CallbackContext) -> None:
     """Add a new admin."""
@@ -238,12 +239,12 @@ async def add_admin_command(update: Update, context: CallbackContext) -> None:
     
     # Only admins can add admins
     if not is_admin(user_id):
-        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
+        await update.message.reply_text(f"⛔ You don't have permission to use this command. Your ID: {user_id}")
         return
     
     # Check if user ID is provided
     if not context.args:
-        await update.message.reply_text("Please provide a user ID. Example: /addadmin 123456789")
+        await update.message.reply_text("⚠️ Please provide a user ID. Example: /addadmin 123456789")
         return
     
     try:
@@ -253,13 +254,13 @@ async def add_admin_command(update: Update, context: CallbackContext) -> None:
         if new_admin_id not in config.get("admin_ids", []):
             config.setdefault("admin_ids", []).append(new_admin_id)
             if save_config(config):
-                await update.message.reply_text(f"User {new_admin_id} has been added as an admin.")
+                await update.message.reply_text(f"✅ User <code>{new_admin_id}</code> has been added as an admin.", parse_mode="HTML")
             else:
-                await update.message.reply_text("Failed to save configuration.")
+                await update.message.reply_text("❌ Failed to save configuration.")
         else:
-            await update.message.reply_text(f"User {new_admin_id} is already an admin.")
+            await update.message.reply_text(f"ℹ️ User <code>{new_admin_id}</code> is already an admin.", parse_mode="HTML")
     except ValueError:
-        await update.message.reply_text("Invalid user ID. Please provide a numeric ID.")
+        await update.message.reply_text("❌ Invalid user ID. Please provide a numeric ID.")
 
 async def remove_admin_command(update: Update, context: CallbackContext) -> None:
     """Remove an admin."""
@@ -270,12 +271,12 @@ async def remove_admin_command(update: Update, context: CallbackContext) -> None
     
     # Only admins can remove admins
     if not is_admin(user_id):
-        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
+        await update.message.reply_text(f"⛔ You don't have permission to use this command. Your ID: {user_id}")
         return
     
     # Check if user ID is provided
     if not context.args:
-        await update.message.reply_text("Please provide a user ID. Example: /removeadmin 123456789")
+        await update.message.reply_text("⚠️ Please provide a user ID. Example: /removeadmin 123456789")
         return
     
     try:
@@ -283,20 +284,20 @@ async def remove_admin_command(update: Update, context: CallbackContext) -> None
         
         # Cannot remove yourself if you're the only admin
         if admin_id == user_id and len(config.get("admin_ids", [])) <= 1:
-            await update.message.reply_text("Cannot remove yourself as you are the only admin.")
+            await update.message.reply_text("⚠️ Cannot remove yourself as you are the only admin.")
             return
         
         # Remove the admin
         if admin_id in config.get("admin_ids", []):
             config["admin_ids"].remove(admin_id)
             if save_config(config):
-                await update.message.reply_text(f"User {admin_id} has been removed from admins.")
+                await update.message.reply_text(f"✅ User <code>{admin_id}</code> has been removed from admins.", parse_mode="HTML")
             else:
-                await update.message.reply_text("Failed to save configuration.")
+                await update.message.reply_text("❌ Failed to save configuration.")
         else:
-            await update.message.reply_text(f"User {admin_id} is not an admin.")
+            await update.message.reply_text(f"ℹ️ User <code>{admin_id}</code> is not an admin.", parse_mode="HTML")
     except ValueError:
-        await update.message.reply_text("Invalid user ID. Please provide a numeric ID.")
+        await update.message.reply_text("❌ Invalid user ID. Please provide a numeric ID.")
 
 async def status_command(update: Update, context: CallbackContext) -> None:
     """Show bot status."""
@@ -307,7 +308,7 @@ async def status_command(update: Update, context: CallbackContext) -> None:
     
     # Only admins can see status
     if not is_admin(user_id):
-        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
+        await update.message.reply_text(f"⛔ You don't have permission to use this command. Your ID: {user_id}")
         return
     
     # Get enabled groups
@@ -317,10 +318,10 @@ async def status_command(update: Update, context: CallbackContext) -> None:
     admins = config.get("admin_ids", [])
     
     status_message = (
-        "<b>Bot Status</b>\n\n"
-        f"<b>Enabled Groups:</b> {len(enabled_groups)}\n"
-        f"<b>Admins:</b> {len(admins)}\n"
-        f"<b>Admin IDs:</b> {', '.join(map(str, admins))}"
+        "📊 <b>Bot Status</b> 📊\n\n"
+        f"🟢 <b>Enabled Groups:</b> {len(enabled_groups)}\n"
+        f"👑 <b>Admins:</b> {len(admins)}\n"
+        f"🆔 <b>Admin IDs:</b> {', '.join(map(str, admins))}"
     )
     
     await update.message.reply_text(status_message, parse_mode="HTML")
@@ -340,7 +341,7 @@ async def search_mobile(update: Update, context: CallbackContext) -> None:
         return
     
     if not context.args:
-        await update.message.reply_text("Please provide a mobile number. Example: /mobile 9876543210")
+        await update.message.reply_text("⚠️ Please provide a mobile number. Example: /mobile 9876543210")
         return
     
     mobile = context.args[0]
@@ -361,7 +362,7 @@ async def search_aadhaar(update: Update, context: CallbackContext) -> None:
         return
     
     if not context.args:
-        await update.message.reply_text("Please provide an Aadhaar number. Example: /aadhaar 123456789012")
+        await update.message.reply_text("⚠️ Please provide an Aadhaar number. Example: /aadhaar 123456789012")
         return
     
     aadhaar = context.args[0]
@@ -382,7 +383,7 @@ async def search_email(update: Update, context: CallbackContext) -> None:
         return
     
     if not context.args:
-        await update.message.reply_text("Please provide an email. Example: /email user@example.com")
+        await update.message.reply_text("⚠️ Please provide an email. Example: /email user@example.com")
         return
     
     email = context.args[0]
@@ -404,11 +405,12 @@ async def handle_text(update: Update, context: CallbackContext) -> None:
     
     # Provide help for text messages
     await update.message.reply_text(
-        "Please use one of these commands to search:\n\n"
-        "/mobile <number> - Search by mobile number\n"
-        "/aadhaar <number> - Search by Aadhaar number\n"
-        "/email <email> - Search by email\n\n"
-        "For more help, use /help command."
+        "🔍 <b>Search Commands</b> 🔍\n\n"
+        "📱 /mobile <number> - Search by mobile number\n"
+        "🪪 /aadhaar <number> - Search by Aadhaar number\n"
+        "📧 /email <email> - Search by email\n\n"
+        "❓ For more help, use /help command.",
+        parse_mode="HTML"
     )
 
 async def perform_search(update: Update, search_type: str, value: str) -> None:
@@ -419,11 +421,12 @@ async def perform_search(update: Update, search_type: str, value: str) -> None:
         if response.status_code == 200:
             results = response.json()
             if not results:
-                await update.message.reply_text(f"No results found for {search_type}: {value}")
+                await update.message.reply_text(f"🔍 No results found for {search_type}: <code>{value}</code>", parse_mode="HTML")
                 return
             
             # Send header message
-            await update.message.reply_text(f"<b>Found {len(results)} results for {search_type}: {value}</b>", parse_mode="HTML")
+            icon = "📱" if search_type == "mobile" else "🪪" if search_type == "id" else "📧"
+            await update.message.reply_text(f"{icon} <b>Found {len(results)} results for {search_type}: {value}</b>", parse_mode="HTML")
             
             # Process results in batches to avoid message length limit
             MAX_MESSAGE_LENGTH = 3800  # Telegram limit is 4096, leaving room for formatting
@@ -439,7 +442,7 @@ async def perform_search(update: Update, search_type: str, value: str) -> None:
                     current_message = result_text
                 else:
                     if current_message:
-                        current_message += "\n" + "—" * 20 + "\n\n" + result_text
+                        current_message += "\n" + "〰️" * 15 + "\n\n" + result_text
                     else:
                         current_message = result_text
             
@@ -449,32 +452,36 @@ async def perform_search(update: Update, search_type: str, value: str) -> None:
                 
         else:
             error = response.json().get("error", "Unknown error")
-            await update.message.reply_text(f"Error: {error}")
+            await update.message.reply_text(f"❌ Error: {error}")
     
     except Exception as e:
         logger.error(f"Error performing search: {e}")
-        await update.message.reply_text("An error occurred while searching. Please try again later.")
+        await update.message.reply_text("❌ An error occurred while searching. Please try again later.")
 
 def format_result(result: dict, index: int) -> str:
     """Format a single result for display."""
-    message = f"<b>Result #{index}</b>\n\n"
+    message = f"🔍 <b>Result #{index}</b>\n\n"
     
     # Add priority fields first
     if "name" in result:
-        message += f"<b>Name:</b> {result['name']}\n"
+        message += f"👤 <b>Name:</b> {result['name']}\n"
     if "mobile" in result:
-        message += f"<b>Mobile:</b> {result['mobile']}\n"
+        message += f"📱 <b>Mobile:</b> {result['mobile']}\n"
     if "alt" in result:
-        message += f"<b>Alt Number:</b> {result['alt']}\n"
+        message += f"📞 <b>Alt Number:</b> {result['alt']}\n"
     if "id" in result:
-        message += f"<b>ID:</b> {result['id']}\n"
+        message += f"🪪 <b>ID:</b> {result['id']}\n"
     
     # Add remaining fields
     for key, value in result.items():
         if key not in ["name", "mobile", "alt", "id"]:
             # Format the key with proper capitalization
             formatted_key = key.replace("_", " ").title()
-            message += f"<b>{formatted_key}:</b> {value}\n"
+            
+            # Add appropriate emoji based on field name
+            emoji = "✉️" if key == "email" else "📍" if key == "address" else "ℹ️"
+            
+            message += f"{emoji} <b>{formatted_key}:</b> {value}\n"
     
     return message
 
@@ -488,17 +495,17 @@ async def myid_command(update: Update, context: CallbackContext) -> None:
     # The myid command is always available to everyone
     # This helps users know their ID to request admin access
     
-    admin_status = "You are an admin of this bot." if is_user_admin else "You are not an admin of this bot."
+    admin_status = "✅ You are an admin of this bot." if is_user_admin else "❌ You are not an admin of this bot."
     
     if chat_id > 0 and not is_user_admin:
-        admin_status += "\nNote: This bot is only available for administrators in private chats."
+        admin_status += "\n⚠️ Note: This bot is only available for administrators in private chats."
     
     await update.message.reply_text(
-        f"Your Telegram information:\n\n"
-        f"Name: {user_name}\n"
-        f"User ID: <code>{user_id}</code>\n\n"
+        f"👤 <b>Your Telegram Information</b> 👤\n\n"
+        f"📝 <b>Name:</b> {user_name}\n"
+        f"🆔 <b>User ID:</b> <code>{user_id}</code>\n\n"
         f"{admin_status}\n\n"
-        f"If you need admin access, ask an existing admin to run:\n"
+        f"💡 If you need admin access, ask an existing admin to run:\n"
         f"<code>/addadmin {user_id}</code>",
         parse_mode="HTML"
     )
@@ -509,16 +516,18 @@ async def reset_admin_command(update: Update, context: CallbackContext) -> None:
     
     # This command can only be used in private chat with the bot
     if update.effective_chat.type != "private":
-        await update.message.reply_text("For security reasons, this command can only be used in private chat with the bot.")
+        await update.message.reply_text("⚠️ For security reasons, this command can only be used in private chat with the bot.")
         return
     
     # Check if the user provided the correct reset code
     if not context.args or len(context.args) != 1:
         await update.message.reply_text(
-            "⚠️ This is an emergency command to reset admin permissions.\n\n"
+            "⚠️ <b>EMERGENCY COMMAND</b> ⚠️\n\n"
+            "This is an emergency command to reset admin permissions.\n\n"
             "To reset admin list to default, use:\n"
-            "/resetadmin RESET_CODE\n\n"
-            "Where RESET_CODE is the bot token's first 8 characters."
+            "<code>/resetadmin RESET_CODE</code>\n\n"
+            "Where RESET_CODE is the bot token's first 8 characters.",
+            parse_mode="HTML"
         )
         return
     
@@ -527,7 +536,7 @@ async def reset_admin_command(update: Update, context: CallbackContext) -> None:
     
     if reset_code != token_prefix:
         logger.warning(f"Failed admin reset attempt by user {user_id} with incorrect code")
-        await update.message.reply_text("Incorrect reset code.")
+        await update.message.reply_text("❌ Incorrect reset code.")
         return
     
     # Reset admin list to default
@@ -536,12 +545,13 @@ async def reset_admin_command(update: Update, context: CallbackContext) -> None:
     if save_config(config):
         logger.warning(f"Admin list reset to default by user {user_id}")
         await update.message.reply_text(
-            "✅ Admin list has been reset to default.\n\n"
-            f"Default admin ID: {ADMIN_IDS[0]}"
+            "✅ <b>Admin list has been reset to default.</b>\n\n"
+            f"👑 Default admin ID: <code>{ADMIN_IDS[0]}</code>",
+            parse_mode="HTML"
         )
     else:
         logger.error(f"Failed to save config during admin reset by user {user_id}")
-        await update.message.reply_text("Failed to save configuration.")
+        await update.message.reply_text("❌ Failed to save configuration.")
 
 def main() -> None:
     """Start the bot."""
