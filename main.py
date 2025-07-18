@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Bot configuration
 BOT_TOKEN = "7814043110:AAFcxulQdXjDNpDj5zCDRsVi_xbi-kFE0KM"
 API_BASE_URL = "https://keeping-word-contain-johnson.trycloudflare.com"  # Change this if your API is hosted elsewhere
-ADMIN_IDS = [7013965994]  # Add your Telegram user ID here
+ADMIN_IDS = [8152872764]  # Add your Telegram user ID here
 CONFIG_FILE = "bot_config.json"
 
 # Default configuration
