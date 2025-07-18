@@ -1,895 +1,589 @@
-import os
 import logging
 import requests
-import httpx
-import asyncio
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler, ConversationHandler, CallbackQueryHandler
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from telegram.constants import ParseMode
+import json
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 
 # Configure logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Get environment variables
-TOKEN = ("7909260821:AAFSOfbH_LLUH78JSXq2gALhJQ38mVTDGAg")
-MOBILE_SEARCH_API = os.getenv("MOBILE_SEARCH_API", "https://receive-attachments-lying-cash.trycloudflare.com/search?mobile=")
-AADHAR_SEARCH_API = os.getenv("AADHAR_SEARCH_API", "https://receive-attachments-lying-cash.trycloudflare.com/search?aadhar=")
-AADHAAR_AGE_API = "https://kyc-api.aadhaarkyc.io/api/v1/aadhaar-validation/aadhaar-validation"
-AADHAAR_API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTY0MTIxNDczNSwianRpIjoiMmE4MWZkMTUtNWU0Yy00NjY1LWE0NTItYTE4ZDRmZTRkOTdkIiwidHlwZSI6ImFjY2VzcyIsImlkZW50aXR5IjoiZGV2LmtyNGFsbEBhYWRoYWFyYXBpLmlvIiwibmJmIjoxNjQxMjE0NzM1LCJleHAiOjE5NTY1NzQ3MzUsInVzZXJfY2xhaW1zIjp7InNjb3BlcyI6WyJyZWFkIl19fQ.xq-191hmb69EjYkJ5r4c2yAJNf2lMqnA_3PhfnCrzNY"
-AADHAAR_TO_PAN_API = "https://aadhaar-to-full-pan.p.rapidapi.com/Aadhaar_to_pan"
-SOCIAL_LINKS_API = "https://social-links-search.p.rapidapi.com/search-social-links"
-SOCIAL_LINKS_API_KEY = "525a6a5a93msh3b9d06f41651572p16ef82jsnfb8eeb3cc004"
-HIBP_API_KEY = "6d704d3eccc0484ca7777ccdf6ed02f2"
-HIBP_API_URL = "https://haveibeenpwned.com/api/v3/breachedaccount/"
+# Bot configuration
+BOT_TOKEN = "7814043110:AAFcxulQdXjDNpDj5zCDRsVi_xbi-kFE0KM"
+API_BASE_URL = "https://keeping-word-contain-johnson.trycloudflare.com"  # Change this if your API is hosted elsewhere
+ADMIN_IDS = [7013965994]  # Add your Telegram user ID here
+CONFIG_FILE = "bot_config.json"
 
-# List of authorized chat IDs
-AUTHORIZED_CHAT_IDS = [1390359967, 1074750898]
+# Default configuration
+default_config = {
+    "enabled_groups": {},
+    "admin_ids": ADMIN_IDS
+}
 
-# Conversation states
-ENTER_API_KEY = 0
-PROCESS_PAN = 1
-ENTER_MOBILE = 10
-ENTER_AADHAR = 20
-ENTER_SOCIAL = 30
-ENTER_AGE = 40
-ENTER_EMAIL = 50
-
-# User data dictionary to store temporary data
-user_data_dict = {}
-
-# Access control decorator
-def restricted(func):
-    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = update.effective_user.id
-        if user_id not in AUTHORIZED_CHAT_IDS:
-            logger.warning(f"Unauthorized access denied for {user_id}")
-            await update.message.reply_text("Sorry, this bot is private and you are not authorized to use it.")
-            return
-        return await func(update, context, *args, **kwargs)
-    return wrapped
-
-# Helper function to get data with retry mechanism
-async def get_api_data(url, max_retries=5, delay=1):
-    retries = 0
-    last_error = None
-    
-    while retries < max_retries:
+# Load or create configuration
+def load_config():
+    if os.path.exists(CONFIG_FILE):
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if "data" in data and data["data"]:
-                        return data
-                    
-                    # If no data found but API returned successfully, try again
-                    if retries < max_retries - 1:
-                        logger.info(f"No data found, retrying {retries+1}/{max_retries}...")
-                        await asyncio.sleep(delay)
-                        retries += 1
-                        continue
-                    return data
-                
-                # If API returned error, try again
-                logger.error(f"API returned error {response.status_code}, retrying {retries+1}/{max_retries}...")
-                
-            # Increase delay with each retry (exponential backoff)
-            await asyncio.sleep(delay)
-            delay *= 2
-            retries += 1
-            
+            with open(CONFIG_FILE, 'r') as f:
+                config_data = json.load(f)
+                # Make sure admin_ids is properly initialized from the file
+                if "admin_ids" not in config_data or not config_data["admin_ids"]:
+                    config_data["admin_ids"] = ADMIN_IDS
+                return config_data
         except Exception as e:
-            last_error = str(e)
-            logger.error(f"Error fetching data: {last_error}, retrying {retries+1}/{max_retries}...")
-            await asyncio.sleep(delay)
-            delay *= 2
-            retries += 1
+            logger.error(f"Error loading config: {e}")
     
-    # If all retries failed, return error
-    return {"error": f"Failed after {max_retries} attempts. Last error: {last_error}"}
+    # Create default config file if it doesn't exist
+    default_conf = {
+        "enabled_groups": {},
+        "admin_ids": ADMIN_IDS
+    }
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(default_conf, f, indent=4)
+    
+    return default_conf
 
-# Search functions
-@restricted
-async def mobile_search(update: Update, mobile: str):
-    # If the mobile is "Back to Menu", ignore it
-    if mobile == "⬅️ Back to Menu":
-        return
-        
+# Save configuration
+def save_config(config):
     try:
-        # Send a "searching" message
-        searching_message = await update.message.reply_text("🔍 Searching... This may take a moment.")
-        
-        # Use the async retry mechanism
-        data = await get_api_data(f"{MOBILE_SEARCH_API}{mobile}")
-        
-        # Delete the "searching" message
-        await searching_message.delete()
-        
-        if "error" in data:
-            await update.message.reply_text(f"Error: {data['error']}")
-            return
-        
-        if "data" in data and data["data"]:
-            # First show how many results were found
-            count = len(data["data"])
-            await update.message.reply_text(f"Found {count} result(s) for mobile: {mobile}")
-            
-            # Process each person in the data array
-            for i, person in enumerate(data["data"]):
-                # Format information with copyable fields as code blocks
-                mobile_num = person.get('mobile', 'N/A')
-                alt_mobile = person.get('alt', 'N/A')
-                person_id = person.get('id', 'N/A')
-                
-                # Prepare basic result
-                result = (
-                    f"Person Information ({i+1}/{count}):\n\n"
-                    f"👤 *Name*: {person.get('name', 'N/A')}\n"
-                    f"👨‍👦 *Father's Name*: {person.get('fname', 'N/A')}\n"
-                    f"🏠 *Address*: `{person.get('address', 'N/A').replace('!', ', ')}`\n"
-                    f"🌎 *Circle*: {person.get('circle', 'N/A')}\n\n"
-                )
-                
-                # Add copyable information in horizontal format
-                result += f"📱 *Mobile*: `{mobile_num}`\n"
-                result += f"📞 *Alt Mobile*: `{alt_mobile}`\n"
-                result += f"🆔 *ID*: `{person_id}`"
-                
-                # Add email if available
-                if 'email' in person and person.get('email'):
-                    email = person.get('email')
-                    result += f"\n📧 *Email*: `{email}`"
-                
-                await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
-        else:
-            await update.message.reply_text("No information found for this mobile number.")
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=4)
+        return True
     except Exception as e:
-        logger.error(f"Error in mobile search: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}")
+        logger.error(f"Error saving config: {e}")
+        return False
 
-@restricted
-async def aadhar_search(update: Update, aadhar: str):
-    # If the aadhar is "Back to Menu", ignore it
-    if aadhar == "⬅️ Back to Menu":
-        return
-        
-    try:
-        # Send a "searching" message
-        searching_message = await update.message.reply_text("🔍 Searching... This may take a moment.")
-        
-        # Use the async retry mechanism
-        data = await get_api_data(f"{AADHAR_SEARCH_API}{aadhar}")
-        
-        # Delete the "searching" message
-        await searching_message.delete()
-        
-        if "error" in data:
-            await update.message.reply_text(f"Error: {data['error']}")
-            return
-            
-        if "data" in data and data["data"]:
-            # First show how many results were found
-            count = len(data["data"])
-            await update.message.reply_text(f"Found {count} result(s) for Aadhar: {aadhar}")
-            
-            # Process each person in the data array
-            for i, person in enumerate(data["data"]):
-                # Format information with copyable fields as code blocks
-                mobile_num = person.get('mobile', 'N/A')
-                alt_mobile = person.get('alt', 'N/A')
-                person_id = person.get('id', 'N/A')
-                
-                # Prepare basic result
-                result = (
-                    f"Person Information ({i+1}/{count}):\n\n"
-                    f"👤 *Name*: {person.get('name', 'N/A')}\n"
-                    f"👨‍👦 *Father's Name*: {person.get('fname', 'N/A')}\n"
-                    f"🏠 *Address*: `{person.get('address', 'N/A').replace('!', ', ')}`\n"
-                    f"🌎 *Circle*: {person.get('circle', 'N/A')}\n\n"
-                )
-                
-                # Add copyable information in horizontal format
-                result += f"📱 *Mobile*: `{mobile_num}`\n"
-                result += f"📞 *Alt Mobile*: `{alt_mobile}`\n"
-                result += f"🆔 *ID*: `{person_id}`"
-                
-                # Add email if available
-                if 'email' in person and person.get('email'):
-                    email = person.get('email')
-                    result += f"\n📧 *Email*: `{email}`"
-                
-                await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
-        else:
-            await update.message.reply_text("No information found for this Aadhar number.")
-    except Exception as e:
-        logger.error(f"Error in Aadhar search: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}")
+# Load configuration
+config = load_config()
 
-# Age range search function
-@restricted
-async def age_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check if an argument was provided
-    if not context.args:
-        await update.message.reply_text("Please provide an Aadhaar number after the /age command.")
-        return
+# Check if user is admin
+def is_admin(user_id):
+    # Convert to integer for comparison
+    user_id = int(user_id)
+    admin_ids = config.get("admin_ids", ADMIN_IDS)
     
-    aadhar_number = context.args[0]
+    # Debug log to see what's happening
+    logger.info(f"Checking if user {user_id} is admin. Admin IDs: {admin_ids}")
     
-    # If the aadhar number is "Back to Menu", ignore it
-    if aadhar_number == "⬅️ Back to Menu":
-        return
-    
-    # Validate Aadhaar number format (12 digits)
-    if not aadhar_number.isdigit() or len(aadhar_number) != 12:
-        await update.message.reply_text("Please provide a valid 12-digit Aadhaar number.")
-        return
-    
-    try:
-        # Prepare API request
-        payload = {
-            "id_number": aadhar_number
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {AADHAAR_API_KEY}"
-        }
-        
-        # Make the API request
-        response = requests.post(AADHAAR_AGE_API, json=payload, headers=headers)
-        data = response.json()
-        
-        # Check if the response contains age_range
-        if response.status_code == 200 and "data" in data and "age_range" in data["data"]:
-            age_range = data["data"]["age_range"]
-            await update.message.reply_text(
-                f"🔍 *Age Range Result*\n\n"
-                f"Aadhaar Number: `{aadhar_number}`\n"
-                f"Age Range: *{age_range}*",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            # If there's an error or age_range is not available
-            error_msg = data.get("message", "Unknown error occurred")
-            await update.message.reply_text(f"Could not retrieve age range: {error_msg}")
-    
-    except Exception as e:
-        logger.error(f"Error in age search: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}")
+    result = user_id in admin_ids
+    logger.info(f"Admin check result for {user_id}: {result}")
+    return result
 
-# PAN search function - start conversation
-@restricted
-async def pan_search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check if an argument was provided
-    if not context.args:
-        await update.message.reply_text("Please provide an Aadhaar number after the /pan command.")
-        return ConversationHandler.END
+# Check if bot is enabled in a group
+def is_enabled(chat_id):
+    chat_id_str = str(chat_id)
+    # DMs with the bot are only enabled for admins
+    if chat_id > 0:
+        return False  # Will check admin status separately
     
-    aadhar_number = context.args[0]
+    return chat_id_str in config.get("enabled_groups", {}) and config["enabled_groups"][chat_id_str]
+
+# Reload configuration - call this before checking permissions
+def reload_config():
+    global config
+    config = load_config()
+    logger.info(f"Config reloaded: {config}")
     
-    # Validate Aadhaar number format (12 digits)
-    if not aadhar_number.isdigit() or len(aadhar_number) != 12:
-        await update.message.reply_text("Please provide a valid 12-digit Aadhaar number.")
-        return ConversationHandler.END
-    
-    # Store the Aadhaar number in user_data for later use
+    # Ensure admin_ids is a list and contains at least the default admin
+    if "admin_ids" not in config or not config["admin_ids"]:
+        config["admin_ids"] = ADMIN_IDS
+        save_config(config)
+        logger.warning(f"Admin IDs were missing, reset to defaults: {ADMIN_IDS}")
+
+# Command handlers
+async def start_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /start is issued."""
+    chat_id = update.effective_chat.id
     user_id = update.effective_user.id
-    user_data_dict[user_id] = {"aadhar_number": aadhar_number}
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_admin(user_id):
+            await update.message.reply_text(
+                "⛔ This bot is only available for administrators in private chats.\n"
+                "Please use the bot in a group where it's enabled."
+            )
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        if is_admin(user_id):
+            await update.message.reply_text(
+                "Bot is currently disabled in this group. Use /enable to enable it."
+            )
+        return
     
     await update.message.reply_text(
-        "Please enter your Special Key🔑 for the Aadhaar to PAN API.\n\n"
-        "If you don't have one, you can get it from 👉  @icodeinbinary\n"  
+        "Welcome to the User Search Bot!\n\n"
+        "You can search for users by:\n"
+        "• Mobile number: /mobile <number>\n"
+        "• Aadhaar: /aadhaar <number>\n"
+        "• Email: /email <email>\n\n"
+        "Use /help to see all available commands."
+    )
+
+async def help_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /help is issued."""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    is_user_admin = is_admin(user_id)
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_user_admin:
+            await update.message.reply_text("⛔ This bot is only available for administrators in private chats.")
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        if is_user_admin:
+            await update.message.reply_text("Bot is currently disabled in this group. Use /enable to enable it.")
+        return
+    
+    basic_help = (
+        "Available commands:\n\n"
+        "/mobile <number> - Search by mobile number\n"
+        "/aadhaar <number> - Search by Aadhaar number\n"
+        "/email <email> - Search by email\n"
+        "/start - Show welcome message\n"
+        "/help - Show this help message"
     )
     
-    return ENTER_API_KEY
+    admin_help = (
+        "\n\n<b>Admin Commands:</b>\n"
+        "/enable - Enable bot in this group\n"
+        "/disable - Disable bot in this group\n"
+        "/addadmin <user_id> - Add a new admin\n"
+        "/removeadmin <user_id> - Remove an admin\n"
+        "/status - Show bot status"
+    )
+    
+    if is_user_admin:
+        await update.message.reply_text(basic_help + admin_help, parse_mode="HTML")
+    else:
+        await update.message.reply_text(basic_help)
 
-# Process API key and fetch PAN data
-@restricted
-async def process_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def enable_command(update: Update, context: CallbackContext) -> None:
+    """Enable the bot in a group."""
+    chat_id = update.effective_chat.id
     user_id = update.effective_user.id
-    api_key = update.message.text.strip()
+    chat_title = update.effective_chat.title
     
-    # Delete the message with the API key for security
-    try:
-        await update.message.delete()
-    except Exception as e:
-        logger.error(f"Could not delete message: {str(e)}")
+    logger.info(f"Enable command called by user {user_id} in chat {chat_id}")
     
-    if user_id not in user_data_dict:
-        await update.message.reply_text("Session expired. Please start again with /pan command.")
-        return ConversationHandler.END
+    # Reload config before checking permissions
+    reload_config()
     
-    aadhar_number = user_data_dict[user_id]["aadhar_number"]
+    # Only admins can enable the bot
+    if not is_admin(user_id):
+        logger.warning(f"Permission denied: User {user_id} tried to enable bot but is not admin")
+        await update.message.reply_text(f"⛔ You don't have permission to use this command. Your ID: {user_id}")
+        return
     
-    # Store API key in user data
-    user_data_dict[user_id]["api_key"] = api_key
+    # Can only be used in groups
+    if chat_id > 0:
+        await update.message.reply_text("This command can only be used in groups.")
+        return
     
-    try:
-        # Prepare API request
-        payload = {
-            "aadhaar_no": aadhar_number
-        }
-        
-        headers = {
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "aadhaar-to-full-pan.p.rapidapi.com",
-            "Content-Type": "application/json"
-        }
-        
-        # Make the API request
-        response = requests.post(AADHAAR_TO_PAN_API, json=payload, headers=headers)
-        data = response.json()
-        
-        # Check if the response contains PAN information
-        if response.status_code == 200 and data.get("status") == "success":
-            pan_number = data["result"]["pan"]
-            aadhaar_link_status = data["result"]["aadhaar_link_status"]
-            
-            status_text = "Linked" if aadhaar_link_status == "Y" else "Not Linked"
-            
-            await update.message.reply_text(
-                f"🔍 *PAN Details Found*\n\n"
-                f"Aadhaar Number: `{aadhar_number}`\n"
-                f"PAN Number: `{pan_number}`\n"
-                f"Link Status: *{status_text}*",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            # If there's an error or PAN is not available
-            error_msg = data.get("message", "Unknown error occurred")
-            
-            # Check if the error is related to quota exceeded
-            if "exceeded the MONTHLY quota" in error_msg or "quota" in error_msg.lower():
-                await update.message.reply_text("SPECIAL KEY EXPIRED💀")
-            else:
-                await update.message.reply_text(f"Could not retrieve PAN information: {error_msg}")
-    
-    except Exception as e:
-        logger.error(f"Error in PAN search: {str(e)}")
-        error_str = str(e)
-        
-        # Check if the error is related to quota exceeded
-        if "exceeded the MONTHLY quota" in error_str or "quota" in error_str.lower():
-            await update.message.reply_text("SPECIAL KEY EXPIRED💀")
-        else:
-            await update.message.reply_text(f"Error: {error_str}")
-    
-    # Clean up user data
-    if user_id in user_data_dict:
-        del user_data_dict[user_id]
-    
-    # Show the simple menu after search is complete
-    await show_simple_menu(update, context)
-    
-    return ConversationHandler.END
+    # Enable the bot for this group
+    chat_id_str = str(chat_id)
+    config["enabled_groups"][chat_id_str] = True
+    if save_config(config):
+        logger.info(f"Bot enabled in group {chat_id} ({chat_title}) by admin {user_id}")
+        await update.message.reply_text(f"✅ Bot has been enabled in {chat_title}.")
+    else:
+        logger.error(f"Failed to save config when enabling bot in group {chat_id}")
+        await update.message.reply_text("Failed to save configuration.")
 
-# Cancel conversation
-@restricted
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def disable_command(update: Update, context: CallbackContext) -> None:
+    """Disable the bot in a group."""
+    chat_id = update.effective_chat.id
     user_id = update.effective_user.id
-    if user_id in user_data_dict:
-        del user_data_dict[user_id]
+    chat_title = update.effective_chat.title
     
-    await update.message.reply_text("Operation cancelled.")
-    return ConversationHandler.END
+    logger.info(f"Disable command called by user {user_id} in chat {chat_id}")
+    
+    # Reload config before checking permissions
+    reload_config()
+    
+    # Only admins can disable the bot
+    if not is_admin(user_id):
+        logger.warning(f"Permission denied: User {user_id} tried to disable bot but is not admin")
+        await update.message.reply_text(f"⛔ You don't have permission to use this command. Your ID: {user_id}")
+        return
+    
+    # Can only be used in groups
+    if chat_id > 0:
+        await update.message.reply_text("This command can only be used in groups.")
+        return
+    
+    # Disable the bot for this group
+    chat_id_str = str(chat_id)
+    config["enabled_groups"][chat_id_str] = False
+    if save_config(config):
+        logger.info(f"Bot disabled in group {chat_id} ({chat_title}) by admin {user_id}")
+        await update.message.reply_text(f"❌ Bot has been disabled in {chat_title}.")
+    else:
+        logger.error(f"Failed to save config when disabling bot in group {chat_id}")
+        await update.message.reply_text("Failed to save configuration.")
 
-# Social links search function
-@restricted
-async def social_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check if an argument was provided
+async def add_admin_command(update: Update, context: CallbackContext) -> None:
+    """Add a new admin."""
+    user_id = update.effective_user.id
+    
+    # Reload config before checking permissions
+    reload_config()
+    
+    # Only admins can add admins
+    if not is_admin(user_id):
+        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
+        return
+    
+    # Check if user ID is provided
     if not context.args:
-        await update.message.reply_text("Please provide a username or person name after the /social command.")
-        return
-    
-    # Join all arguments to handle names with spaces
-    query = " ".join(context.args)
-    
-    # If the query is "Back to Menu", ignore it
-    if query == "⬅️ Back to Menu":
+        await update.message.reply_text("Please provide a user ID. Example: /addadmin 123456789")
         return
     
     try:
-        # Define social networks to search
-        social_networks = "facebook,tiktok,instagram,snapchat,twitter,youtube,linkedin,github,pinterest"
+        new_admin_id = int(context.args[0])
         
-        # Prepare API request
-        querystring = {
-            "query": query,
-            "social_networks": social_networks
-        }
-        
-        headers = {
-            "x-rapidapi-key": SOCIAL_LINKS_API_KEY,
-            "x-rapidapi-host": "social-links-search.p.rapidapi.com"
-        }
-        
-        # Make the API request
-        response = requests.get(SOCIAL_LINKS_API, headers=headers, params=querystring)
-        data = response.json()
-        
-        # Check if the response is successful
-        if response.status_code == 200 and data.get("status") == "OK" and "data" in data:
-            result_data = data["data"]
-            
-            # Create a formatted message with all social media links using HTML formatting
-            result_message = f"🔍 <b>Social Media Profiles for '{query}'</b>\n\n"
-            
-            # Check if any social media profiles were found
-            profiles_found = False
-            
-            # Process each social network
-            for network, links in result_data.items():
-                if links:  # If there are links for this network
-                    profiles_found = True
-                    # Add network name with proper capitalization
-                    result_message += f"<b>{network.capitalize()}</b>:\n"
-                    
-                    # Add all links for each network as normal text (clickable)
-                    for link in links:
-                        result_message += f"• {link}\n"
-                    
-                    result_message += "\n"
-            
-            # Split the message if it's too long (Telegram has a 4096 character limit)
-            if len(result_message) > 4000:
-                # Send results platform by platform
-                await update.message.reply_text(f"🔍 <b>Social Media Profiles for '{query}'</b>\n\nFound profiles on multiple platforms. Sending results separately for each platform.", parse_mode=ParseMode.HTML)
-                
-                for network, links in result_data.items():
-                    if links:
-                        platform_message = f"<b>{network.capitalize()}</b> profiles for '{query}':\n\n"
-                        for link in links:
-                            platform_message += f"• {link}\n"
-                        
-                        # Send each platform's results as a separate message
-                        if len(platform_message) > 4000:
-                            # If even a single platform has too many links, split it further
-                            chunks = [links[i:i+30] for i in range(0, len(links), 30)]
-                            for i, chunk in enumerate(chunks):
-                                chunk_msg = f"<b>{network.capitalize()}</b> profiles for '{query}' (part {i+1}/{len(chunks)}):\n\n"
-                                for link in chunk:
-                                    chunk_msg += f"• {link}\n"
-                                await update.message.reply_text(chunk_msg, parse_mode=ParseMode.HTML)
-                        else:
-                            await update.message.reply_text(platform_message, parse_mode=ParseMode.HTML)
+        # Add the new admin if not already an admin
+        if new_admin_id not in config.get("admin_ids", []):
+            config.setdefault("admin_ids", []).append(new_admin_id)
+            if save_config(config):
+                await update.message.reply_text(f"User {new_admin_id} has been added as an admin.")
             else:
-                # If the message is not too long, send it as one message
-                if profiles_found:
-                    await update.message.reply_text(result_message, parse_mode=ParseMode.HTML)
-                else:
-                    await update.message.reply_text(f"No social media profiles found for '{query}'.")
+                await update.message.reply_text("Failed to save configuration.")
         else:
-            # If there's an error or no data
-            error_msg = data.get("message", "Unknown error occurred")
-            await update.message.reply_text(f"Could not retrieve social media profiles: {error_msg}")
-    
-    except Exception as e:
-        logger.error(f"Error in social search: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}")
+            await update.message.reply_text(f"User {new_admin_id} is already an admin.")
+    except ValueError:
+        await update.message.reply_text("Invalid user ID. Please provide a numeric ID.")
 
-# Breach check function
-@restricted
-async def breach_check(update: Update, email: str):
-    # If the email is "Back to Menu", ignore it
-    if email == "⬅️ Back to Menu":
+async def remove_admin_command(update: Update, context: CallbackContext) -> None:
+    """Remove an admin."""
+    user_id = update.effective_user.id
+    
+    # Reload config before checking permissions
+    reload_config()
+    
+    # Only admins can remove admins
+    if not is_admin(user_id):
+        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
         return
-        
+    
+    # Check if user ID is provided
+    if not context.args:
+        await update.message.reply_text("Please provide a user ID. Example: /removeadmin 123456789")
+        return
+    
     try:
-        # HIBP API endpoint
-        url = f'{HIBP_API_URL}{email}'
+        admin_id = int(context.args[0])
         
-        # Headers
-        headers = {
-            'hibp-api-key': HIBP_API_KEY,
-            'User-Agent': 'TelegramBot'
-        }
+        # Cannot remove yourself if you're the only admin
+        if admin_id == user_id and len(config.get("admin_ids", [])) <= 1:
+            await update.message.reply_text("Cannot remove yourself as you are the only admin.")
+            return
         
-        # Make the API request
-        response = requests.get(url, headers=headers)
+        # Remove the admin
+        if admin_id in config.get("admin_ids", []):
+            config["admin_ids"].remove(admin_id)
+            if save_config(config):
+                await update.message.reply_text(f"User {admin_id} has been removed from admins.")
+            else:
+                await update.message.reply_text("Failed to save configuration.")
+        else:
+            await update.message.reply_text(f"User {admin_id} is not an admin.")
+    except ValueError:
+        await update.message.reply_text("Invalid user ID. Please provide a numeric ID.")
+
+async def status_command(update: Update, context: CallbackContext) -> None:
+    """Show bot status."""
+    user_id = update.effective_user.id
+    
+    # Reload config before checking permissions
+    reload_config()
+    
+    # Only admins can see status
+    if not is_admin(user_id):
+        await update.message.reply_text(f"You don't have permission to use this command. Your ID: {user_id}")
+        return
+    
+    # Get enabled groups
+    enabled_groups = [group_id for group_id, enabled in config.get("enabled_groups", {}).items() if enabled]
+    
+    # Get admins
+    admins = config.get("admin_ids", [])
+    
+    status_message = (
+        "<b>Bot Status</b>\n\n"
+        f"<b>Enabled Groups:</b> {len(enabled_groups)}\n"
+        f"<b>Admins:</b> {len(admins)}\n"
+        f"<b>Admin IDs:</b> {', '.join(map(str, admins))}"
+    )
+    
+    await update.message.reply_text(status_message, parse_mode="HTML")
+
+async def search_mobile(update: Update, context: CallbackContext) -> None:
+    """Search by mobile number."""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_admin(user_id):
+            await update.message.reply_text("⛔ This bot is only available for administrators in private chats.")
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        return
+    
+    if not context.args:
+        await update.message.reply_text("Please provide a mobile number. Example: /mobile 9876543210")
+        return
+    
+    mobile = context.args[0]
+    await perform_search(update, "mobile", mobile)
+
+async def search_aadhaar(update: Update, context: CallbackContext) -> None:
+    """Search by Aadhaar number."""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_admin(user_id):
+            await update.message.reply_text("⛔ This bot is only available for administrators in private chats.")
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        return
+    
+    if not context.args:
+        await update.message.reply_text("Please provide an Aadhaar number. Example: /aadhaar 123456789012")
+        return
+    
+    aadhaar = context.args[0]
+    await perform_search(update, "id", aadhaar)
+
+async def search_email(update: Update, context: CallbackContext) -> None:
+    """Search by email."""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_admin(user_id):
+            await update.message.reply_text("⛔ This bot is only available for administrators in private chats.")
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        return
+    
+    if not context.args:
+        await update.message.reply_text("Please provide an email. Example: /email user@example.com")
+        return
+    
+    email = context.args[0]
+    await perform_search(update, "email", email)
+
+async def handle_text(update: Update, context: CallbackContext) -> None:
+    """Handle text messages."""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    # Check if in private chat and if user is admin
+    if chat_id > 0:  # Private chat
+        if not is_admin(user_id):
+            await update.message.reply_text("⛔ This bot is only available for administrators in private chats.")
+            return
+    # Check if in a group and if the bot is enabled for this group
+    elif not is_enabled(chat_id):
+        return
+    
+    # Provide help for text messages
+    await update.message.reply_text(
+        "Please use one of these commands to search:\n\n"
+        "/mobile <number> - Search by mobile number\n"
+        "/aadhaar <number> - Search by Aadhaar number\n"
+        "/email <email> - Search by email\n\n"
+        "For more help, use /help command."
+    )
+
+async def perform_search(update: Update, search_type: str, value: str) -> None:
+    """Perform the search and format the results."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/search/{search_type}", params={"value": value})
         
-        # Handle the response
         if response.status_code == 200:
-            breaches = response.json()
-            breach_count = len(breaches)
+            results = response.json()
+            if not results:
+                await update.message.reply_text(f"No results found for {search_type}: {value}")
+                return
             
-            # Create message with breach information
-            result = f"⚠️ *Email Breach Alert* ⚠️\n\n"
-            result += f"The email `{email}` has been found in *{breach_count} data breaches*:\n\n"
+            # Send header message
+            await update.message.reply_text(f"<b>Found {len(results)} results for {search_type}: {value}</b>", parse_mode="HTML")
             
-            # Add only breach platform names in a simple list
-            for i, breach in enumerate(breaches):
-                breach_name = breach.get('Name', 'Unknown')
-                result += f"• `{breach_name}`\n"
+            # Process results in batches to avoid message length limit
+            MAX_MESSAGE_LENGTH = 3800  # Telegram limit is 4096, leaving room for formatting
+            current_message = ""
             
-            await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
-        elif response.status_code == 404:
-            await update.message.reply_text(f"✅ Good news! The email `{email}` has NOT been found in any known data breaches.", parse_mode=ParseMode.MARKDOWN)
+            for i, result in enumerate(results):
+                result_text = format_result(result, i+1)
+                
+                # If adding this result would make the message too long, send current message and start a new one
+                if len(current_message) + len(result_text) + 30 > MAX_MESSAGE_LENGTH:
+                    if current_message:
+                        await update.message.reply_text(current_message, parse_mode="HTML")
+                    current_message = result_text
+                else:
+                    if current_message:
+                        current_message += "\n" + "—" * 20 + "\n\n" + result_text
+                    else:
+                        current_message = result_text
+            
+            # Send any remaining results
+            if current_message:
+                await update.message.reply_text(current_message, parse_mode="HTML")
+                
         else:
-            await update.message.reply_text(f"Error checking breach data: Status code {response.status_code}")
+            error = response.json().get("error", "Unknown error")
+            await update.message.reply_text(f"Error: {error}")
+    
     except Exception as e:
-        logger.error(f"Error in breach check: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}")
+        logger.error(f"Error performing search: {e}")
+        await update.message.reply_text("An error occurred while searching. Please try again later.")
 
-# Main menu function with full welcome message
-@restricted
-async def show_welcome_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Create reply keyboard with only necessary buttons
-    keyboard = [
-        ["Mobile Search 📱", "Aadhar Search 🔎"],
-        ["Social Media Search 🌐", "Breach Check 🔒"],
-        ["Age Check 👶", "PAN Details 💳"]
-    ]
+def format_result(result: dict, index: int) -> str:
+    """Format a single result for display."""
+    message = f"<b>Result #{index}</b>\n\n"
     
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # Add priority fields first
+    if "name" in result:
+        message += f"<b>Name:</b> {result['name']}\n"
+    if "mobile" in result:
+        message += f"<b>Mobile:</b> {result['mobile']}\n"
+    if "alt" in result:
+        message += f"<b>Alt Number:</b> {result['alt']}\n"
+    if "id" in result:
+        message += f"<b>ID:</b> {result['id']}\n"
     
-    # Send the welcome message with the keyboard
+    # Add remaining fields
+    for key, value in result.items():
+        if key not in ["name", "mobile", "alt", "id"]:
+            # Format the key with proper capitalization
+            formatted_key = key.replace("_", " ").title()
+            message += f"<b>{formatted_key}:</b> {value}\n"
+    
+    return message
+
+async def myid_command(update: Update, context: CallbackContext) -> None:
+    """Show the user's Telegram ID."""
+    user_id = update.effective_user.id
+    user_name = update.effective_user.full_name
+    chat_id = update.effective_chat.id
+    is_user_admin = is_admin(user_id)
+    
+    # The myid command is always available to everyone
+    # This helps users know their ID to request admin access
+    
+    admin_status = "You are an admin of this bot." if is_user_admin else "You are not an admin of this bot."
+    
+    if chat_id > 0 and not is_user_admin:
+        admin_status += "\nNote: This bot is only available for administrators in private chats."
+    
     await update.message.reply_text(
-        text="*🔥 Welcome to NumInfo Bot 🔥*\n\n"
-        "*🔍 Features:*\n"
-        "• Mobile Number Search\n"
-        "• Aadhar Number Search\n"
-        "• Social Media Profiles\n"
-        "• Email Breach Check\n"
-        "• Age Check from Aadhar\n"
-        "• PAN Details from Aadhar\n\n"
-        "*👨‍💻 Developer:* @icodeinbinary\n\n"
-        "*Select an option below👇*",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
+        f"Your Telegram information:\n\n"
+        f"Name: {user_name}\n"
+        f"User ID: <code>{user_id}</code>\n\n"
+        f"{admin_status}\n\n"
+        f"If you need admin access, ask an existing admin to run:\n"
+        f"<code>/addadmin {user_id}</code>",
+        parse_mode="HTML"
     )
-    
-    return ConversationHandler.END
 
-# Show menu with simple message
-@restricted
-async def show_simple_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Create reply keyboard with only necessary buttons
-    keyboard = [
-        ["Mobile Search 📱", "Aadhar Search 🔎"],
-        ["Social Media Search 🌐", "Breach Check 🔒"],
-        ["Age Check 👶", "PAN Details 💳"]
-    ]
+async def reset_admin_command(update: Update, context: CallbackContext) -> None:
+    """Reset admin list to default (emergency recovery)."""
+    user_id = update.effective_user.id
     
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # This command can only be used in private chat with the bot
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("For security reasons, this command can only be used in private chat with the bot.")
+        return
     
-    # If this is from a command, send as a new message
-    if update.message:
+    # Check if the user provided the correct reset code
+    if not context.args or len(context.args) != 1:
         await update.message.reply_text(
-            text="*Select options to search more👇*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-    # Otherwise, send as a regular message
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="*Select options to search more👇*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-    
-    return ConversationHandler.END
-
-# Main message handler
-@restricted
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    # Handle first-time users with welcome message
-    if text.lower() in ['/start', 'start', 'hi', 'hello']:
-        return await show_welcome_menu(update, context)
-    
-    # Handle end command
-    if text.lower() in ['/end', 'end']:
-        return await show_simple_menu(update, context)
-    
-    # Handle back to menu button
-    if text == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
-    
-    # Handle help request
-    if text.lower() in ['/help', 'help']:
-        await update.message.reply_text(
-            f"📋 *How to use this bot*:\n\n"
-            f"Click on the buttons at the bottom of the chat to access different features:\n"
-            f"• Mobile Search - Search by 10-digit mobile number\n"
-            f"• Aadhar Search - Search by 12-digit Aadhar number\n"
-            f"• Social Media Search - Find social profiles by name/username\n"
-            f"• Breach Check - Check if email was in data breaches\n"
-            f"• Age Check - Get age range from Aadhar number\n"
-            f"• PAN Details - Get PAN details from Aadhar number\n\n"
-            f"Use /start to see the welcome message\n"
-            f"Use /end to show the menu buttons\n\n"
-            f"Developer: @icodeinbinary",
-            parse_mode=ParseMode.MARKDOWN
+            "⚠️ This is an emergency command to reset admin permissions.\n\n"
+            "To reset admin list to default, use:\n"
+            "/resetadmin RESET_CODE\n\n"
+            "Where RESET_CODE is the bot token's first 8 characters."
         )
         return
     
-    # Handle button presses
-    if text == "Mobile Search 📱":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
+    reset_code = context.args[0]
+    token_prefix = BOT_TOKEN.split(':')[0][:8]
+    
+    if reset_code != token_prefix:
+        logger.warning(f"Failed admin reset attempt by user {user_id} with incorrect code")
+        await update.message.reply_text("Incorrect reset code.")
+        return
+    
+    # Reset admin list to default
+    global config
+    config["admin_ids"] = ADMIN_IDS
+    if save_config(config):
+        logger.warning(f"Admin list reset to default by user {user_id}")
         await update.message.reply_text(
-            "Please enter a 10-digit mobile number to search:",
-            reply_markup=reply_markup
+            "✅ Admin list has been reset to default.\n\n"
+            f"Default admin ID: {ADMIN_IDS[0]}"
         )
-        user_data_dict[update.effective_user.id] = {"next_action": "mobile_search"}
-        return ENTER_MOBILE
-    
-    elif text == "Aadhar Search 🔎":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            "Please enter a 12-digit Aadhar number to search:",
-            reply_markup=reply_markup
-        )
-        user_data_dict[update.effective_user.id] = {"next_action": "aadhar_search"}
-        return ENTER_AADHAR
-    
-    elif text == "Social Media Search 🌐":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            "Please enter a username or person name to search for social media profiles:",
-            reply_markup=reply_markup
-        )
-        user_data_dict[update.effective_user.id] = {"next_action": "social_search"}
-        return ENTER_SOCIAL
-    
-    elif text == "Age Check 👶":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            "Please enter a 12-digit Aadhar number to check age range:",
-            reply_markup=reply_markup
-        )
-        user_data_dict[update.effective_user.id] = {"next_action": "age_search"}
-        return ENTER_AGE
-    
-    elif text == "PAN Details 💳":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            "Please enter a 12-digit Aadhar number to get PAN details:",
-            reply_markup=reply_markup
-        )
-        user_data_dict[update.effective_user.id] = {"next_action": "pan_search"}
-        return ENTER_AADHAR
-    
-    elif text == "Breach Check 🔒":
-        # Create keyboard with back button
-        keyboard = [["⬅️ Back to Menu"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            "Please enter an email address to check for data breaches:",
-            reply_markup=reply_markup
-        )
-        user_data_dict[update.effective_user.id] = {"next_action": "breach_check"}
-        return ENTER_EMAIL
-    
-    # Check if the message is a number
-    if text.isdigit():
-        # If it's 10 digits, treat as mobile number
-        if len(text) == 10:
-            await mobile_search(update, text)
-            # Show simple menu after search
-            await show_simple_menu(update, context)
-            return
-        # If it's 12 digits, treat as Aadhar number
-        elif len(text) == 12:
-            await aadhar_search(update, text)
-            # Show simple menu after search
-            await show_simple_menu(update, context)
-            return
-        # If it's 11 digits, might be a mobile with country code
-        elif len(text) == 11 and text.startswith('0'):
-            # Remove leading 0
-            await mobile_search(update, text[1:])
-            # Show simple menu after search
-            await show_simple_menu(update, context)
-            return
-    
-    # For other text messages, show the simple menu
-    return await show_simple_menu(update, context)
-
-# Handle mobile number input
-@restricted
-async def handle_mobile_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    # Check if user wants to go back to menu
-    if text == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
-    
-    # Check if it's a valid mobile number
-    if text.isdigit() and len(text) == 10:
-        # Send a message that we're processing
-        await update.message.reply_text(f"Searching for mobile: {text}...")
-        
-        # Call the existing mobile search function
-        await mobile_search(update, text)
-        
-        # Show the simple menu after search is complete
-        await show_simple_menu(update, context)
     else:
-        await update.message.reply_text("Invalid number! Please enter a 10-digit mobile number.")
-    
-    return ConversationHandler.END
+        logger.error(f"Failed to save config during admin reset by user {user_id}")
+        await update.message.reply_text("Failed to save configuration.")
 
-# Handle Aadhar number input
-@restricted
-async def handle_aadhar_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
+def main() -> None:
+    """Start the bot."""
+    # Initialize configuration
+    global config
+    config = load_config()
     
-    # Check if user wants to go back to menu
-    if text == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
+    # Force reset admin IDs to default on startup to ensure access
+    if ADMIN_IDS and ADMIN_IDS[0] not in config.get("admin_ids", []):
+        logger.warning(f"Default admin {ADMIN_IDS[0]} not in config, adding...")
+        config.setdefault("admin_ids", []).append(ADMIN_IDS[0])
+        save_config(config)
     
-    # Check if it's a valid Aadhar number
-    if text.isdigit() and len(text) == 12:
-        if user_id in user_data_dict:
-            next_action = user_data_dict[user_id].get("next_action")
-            
-            if next_action == "aadhar_search":
-                # Send a message that we're processing
-                await update.message.reply_text(f"Searching for Aadhar: {text}...")
-                
-                # Call the existing aadhar search function
-                await aadhar_search(update, text)
-            
-            elif next_action == "pan_search":
-                # Store the Aadhar number for PAN search
-                user_data_dict[user_id]["aadhar_number"] = text
-                
-                # Ask for the API key
-                await update.message.reply_text(
-                    "Please enter your Special Key🔑 for the Aadhaar to PAN API.\n\n"
-                    "If you don't have one, you can get it from 👉  @icodeinbinary\n"
-                )
-                
-                return ENTER_API_KEY
-        
-        # Show the simple menu after search is complete
-        await show_simple_menu(update, context)
-    else:
-        await update.message.reply_text("Invalid number! Please enter a 12-digit Aadhar number.")
+    logger.info(f"Bot starting with config: {config}")
     
-    return ConversationHandler.END
+    # Create the Application
+    application = Application.builder().token(BOT_TOKEN).build()
 
-# Handle social search input
-@restricted
-async def handle_social_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    query = update.message.text
+    # Add command handlers
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("mobile", search_mobile))
+    application.add_handler(CommandHandler("aadhaar", search_aadhaar))
+    application.add_handler(CommandHandler("email", search_email))
+    application.add_handler(CommandHandler("myid", myid_command))
     
-    # Check if user wants to go back to menu
-    if query == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
+    # Add admin command handlers
+    application.add_handler(CommandHandler("enable", enable_command))
+    application.add_handler(CommandHandler("disable", disable_command))
+    application.add_handler(CommandHandler("addadmin", add_admin_command))
+    application.add_handler(CommandHandler("removeadmin", remove_admin_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("resetadmin", reset_admin_command))
     
-    # Send a message that we're processing
-    await update.message.reply_text(f"Searching for social media profiles for: {query}...")
+    # Remove the callback query handler for buttons
     
-    # Create a context.args-like structure for the existing function
-    context.args = query.split()
-    
-    # Call the existing social search function
-    await social_search(update, context)
-    
-    # Show the simple menu after search is complete
-    await show_simple_menu(update, context)
-    
-    return ConversationHandler.END
+    # Add message handler for text messages
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-# Handle age check input
-@restricted
-async def handle_age_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    
-    # Check if user wants to go back to menu
-    if text == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
-    
-    # Check if it's a valid Aadhar number
-    if text.isdigit() and len(text) == 12:
-        # Send a message that we're processing
-        await update.message.reply_text(f"Searching for age range with Aadhaar: {text}...")
-        
-        # Create a context.args-like structure for the existing function
-        context.args = [text]
-        
-        # Call the existing age search function
-        await age_search(update, context)
-        
-        # Show the simple menu after search is complete
-        await show_simple_menu(update, context)
-    else:
-        await update.message.reply_text("Invalid number! Please enter a 12-digit Aadhar number.")
-    
-    return ConversationHandler.END
-
-# Handle email input for breach check
-@restricted
-async def handle_email_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    email = update.message.text
-    
-    # Check if user wants to go back to menu
-    if email == "⬅️ Back to Menu":
-        return await show_simple_menu(update, context)
-    
-    # Basic email validation
-    if '@' in email and '.' in email:
-        # Send a message that we're processing
-        await update.message.reply_text(f"Checking if email has been compromised: {email}...")
-        
-        # Call the breach check function
-        await breach_check(update, email)
-        
-        # Show the simple menu after search is complete
-        await show_simple_menu(update, context)
-    else:
-        await update.message.reply_text("Invalid email address! Please enter a valid email.")
-    
-    return ConversationHandler.END
+    # Start the Bot
+    print("Starting bot...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    # Clear existing updates and build application
-    requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset=-1")
-    
-    # Create application and add handlers
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    # Add conversation handlers
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", show_welcome_menu),
-            CommandHandler("end", show_simple_menu),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-        ],
-        states={
-            ENTER_MOBILE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mobile_input)],
-            ENTER_AADHAR: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_aadhar_input)],
-            ENTER_SOCIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_social_input)],
-            ENTER_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_age_input)],
-            ENTER_API_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_api_key)],
-            ENTER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_email_input)]
-        },
-        fallbacks=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)]
-    )
-    
-    app.add_handler(conv_handler)
-    
-    # Add a special handler to check authorization for all incoming updates
-    async def check_authorization(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        if user_id not in AUTHORIZED_CHAT_IDS:
-            logger.warning(f"Unauthorized access denied for {user_id}")
-            await update.message.reply_text("Sorry, this bot is private and you are not authorized to use it.")
-            return True  # Indicates that the update has been handled
-        return False  # Let other handlers process the update
-    
-    app.add_handler(MessageHandler(filters.ALL, check_authorization), group=-999)  # High priority group
-    
-    # Run the bot
-    print("Starting bot...")
-    logger.info(f"Bot restricted to chat IDs: {AUTHORIZED_CHAT_IDS}")
-    app.run_polling(drop_pending_updates=True) 
+    main() 
